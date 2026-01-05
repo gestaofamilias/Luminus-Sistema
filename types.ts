@@ -22,11 +22,13 @@ export interface Project {
   clientEmail: string;
   progress: number;
   status: 'active' | 'completed' | 'on_hold';
+  startDate: string;
   dueDate: string;
   serviceType: string;
+  budget: number;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
   description?: string;
   tasks: ProjectTask[];
-  leadId?: string;
   clientId?: string;
 }
 
@@ -40,10 +42,12 @@ export interface Client {
   cpf?: string;
   cnpj?: string;
   address?: string;
-  instagram?: string;
-  facebook?: string;
+  city?: string;
+  state?: string;
   website?: string;
-  avatar?: string;
+  instagram?: string;
+  linkedin?: string;
+  billingType: 'monthly' | 'one_time';
   totalInvested: number;
   activeProjects: number;
   status: 'active' | 'inactive';
@@ -57,7 +61,6 @@ export interface FinanceTransaction {
   date: string;
   status: 'paid' | 'pending';
   clientId?: string;
-  projectId?: string;
 }
 
 export interface CRMItem {
@@ -66,13 +69,11 @@ export interface CRMItem {
   company: string;
   email: string;
   phone: string;
-  address: string;
-  cpf: string;
-  cnpj: string;
+  source: 'ads' | 'referral' | 'organic' | 'outbound';
   service: string;
   status: LeadStatus;
-  value: string;
-  tag: string;
+  value: number;
+  expectedCloseDate: string;
   createdAt: string;
   notes?: string;
 }

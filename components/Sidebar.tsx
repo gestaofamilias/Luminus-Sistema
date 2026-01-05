@@ -35,7 +35,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, onSignOut })
           </div>
           <div>
             <h1 className="text-xl font-extrabold text-white tracking-tight leading-none">Luminus</h1>
-            <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-1">Marketing OS</p>
+            <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-1">Marketing</p>
           </div>
         </div>
       </div>
