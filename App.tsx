@@ -4,12 +4,35 @@ import Sidebar from './components/Sidebar';
 import AIAssistant from './components/AIAssistant';
 import { Page, LeadStatus, FinanceTransaction, CRMItem, Project, Client } from './types';
 
-// Helper de persistência Local
+// Helper de persistência Local com tratamento de erro robusto
 const storage = {
-  get: (key: string) => JSON.parse(localStorage.getItem(`luminus_${key}`) || '[]'),
-  set: (key: string, data: any) => localStorage.setItem(`luminus_${key}`, JSON.stringify(data)),
-  getUser: () => JSON.parse(localStorage.getItem('luminus_user') || 'null'),
-  setUser: (user: any) => localStorage.setItem('luminus_user', JSON.stringify(user))
+  get: (key: string) => {
+    try {
+      const data = localStorage.getItem(`luminus_${key}`);
+      return data ? JSON.parse(data) : [];
+    } catch (e) {
+      console.error(`Erro ao carregar ${key}:`, e);
+      return [];
+    }
+  },
+  set: (key: string, data: any) => {
+    try {
+      localStorage.setItem(`luminus_${key}`, JSON.stringify(data));
+    } catch (e) {
+      console.error(`Erro ao salvar ${key}:`, e);
+    }
+  },
+  getUser: () => {
+    try {
+      const user = localStorage.getItem('luminus_user');
+      return user ? JSON.parse(user) : null;
+    } catch (e) {
+      return null;
+    }
+  },
+  setUser: (user: any) => {
+    localStorage.setItem('luminus_user', JSON.stringify(user));
+  }
 };
 
 const LuminusIcon = ({ className }: { className?: string }) => (
@@ -26,10 +49,10 @@ const App: React.FC = () => {
   const [showAI, setShowAI] = useState(false);
 
   // DADOS
-  const [crmItems, setCrmItems] = useState<CRMItem[]>(storage.get('crm'));
-  const [transactions, setTransactions] = useState<FinanceTransaction[]>(storage.get('finance'));
-  const [projects, setProjects] = useState<Project[]>(storage.get('projects'));
-  const [clients, setClients] = useState<Client[]>(storage.get('clients'));
+  const [crmItems, setCrmItems] = useState<CRMItem[]>(() => storage.get('crm'));
+  const [transactions, setTransactions] = useState<FinanceTransaction[]>(() => storage.get('finance'));
+  const [projects, setProjects] = useState<Project[]>(() => storage.get('projects'));
+  const [clients, setClients] = useState<Client[]>(() => storage.get('clients'));
 
   // ESTADO DE DRAG AND DROP
   const [isDraggingOver, setIsDraggingOver] = useState<string | null>(null);
@@ -77,7 +100,7 @@ const App: React.FC = () => {
   const executeCreateTransaction = (data: Partial<FinanceTransaction>) => {
     const nt: FinanceTransaction = {
       id: `tr-${Date.now()}`,
-      description: data.description || 'Lançamento IA',
+      description: data.description || 'Lançamento Manual',
       amount: data.amount || 0,
       type: data.type || 'income',
       date: data.date || new Date().toISOString().split('T')[0],
@@ -160,9 +183,16 @@ const App: React.FC = () => {
   const handleCreateFinance = (e: React.FormEvent) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget as HTMLFormElement);
+    const amount = parseFloat(formData.get('amount') as string);
+    
+    if (isNaN(amount)) {
+      alert("Por favor, insira um valor válido.");
+      return;
+    }
+
     executeCreateTransaction({
       description: formData.get('description') as string,
-      amount: parseFloat(formData.get('amount') as string),
+      amount: amount,
       type: formData.get('type') as any,
       date: formData.get('date') as string,
       clientId: formData.get('clientId') as string || undefined,
@@ -182,7 +212,7 @@ const App: React.FC = () => {
       source: formData.get('source') as any,
       service: formData.get('service') as string,
       status: LeadStatus.NEW,
-      value: parseFloat(formData.get('value') as string),
+      value: parseFloat(formData.get('value') as string) || 0,
       expectedCloseDate: formData.get('expectedCloseDate') as string,
       createdAt: new Date().toISOString(),
       notes: formData.get('notes') as string
@@ -193,8 +223,6 @@ const App: React.FC = () => {
 
   const updateLeadStatus = (id: string, status: LeadStatus) => {
     setCrmItems(prev => prev.map(item => item.id === id ? { ...item, status } : item));
-    
-    // Se fechar o lead, sugere virar cliente
     if (status === LeadStatus.CLOSED) {
         const lead = crmItems.find(l => l.id === id);
         if (lead) {
@@ -229,7 +257,7 @@ const App: React.FC = () => {
   };
 
   const financeSummary = useMemo(() => {
-    const current = transactions.filter(t => t.date.startsWith(filterMonth));
+    const current = transactions.filter(t => t.date && t.date.startsWith(filterMonth));
     const inc = current.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
     const exp = current.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
     return { income: inc, expense: exp, balance: inc - exp };
@@ -275,6 +303,7 @@ const App: React.FC = () => {
         <div className="flex-1 flex overflow-hidden">
           <div className={`flex-1 overflow-y-auto p-12 custom-scrollbar transition-all duration-500 ${showAI ? 'mr-0 lg:mr-[400px]' : ''}`}>
             <div className="max-w-7xl mx-auto pb-32">
+              
               {currentPage === Page.DASHBOARD && (
                 <div className="space-y-10 animate-fadeIn">
                   <div className="relative h-72 rounded-[48px] overflow-hidden group border border-white/5 shadow-2xl">
@@ -399,6 +428,34 @@ const App: React.FC = () => {
                 </div>
               )}
 
+              {currentPage === Page.SERVICES && (
+                <div className="space-y-10 animate-fadeIn">
+                   <div className="flex justify-between items-center">
+                    <div><h1 className="text-4xl font-black text-white tracking-tighter">Portfolio & Services</h1><p className="text-zinc-500 mt-1 font-medium text-sm">Nossas frentes de atuação e soluções.</p></div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {[
+                      { title: 'Performance Ads', icon: 'ads_click', desc: 'Gestão profissional de Google e Meta Ads com foco em ROI.' },
+                      { title: 'Branding & Design', icon: 'palette', desc: 'Identidade visual e posicionamento de marca de alto impacto.' },
+                      { title: 'Social Media Hub', icon: 'share', desc: 'Gestão de conteúdo estratégico para redes sociais.' },
+                      { title: 'SEO Strategy', icon: 'search', desc: 'Otimização para mecanismos de busca e tráfego orgânico.' },
+                      { title: 'Inbound Marketing', icon: 'mail', desc: 'Automação de marketing e nutrição de leads qualificados.' },
+                      { title: 'Web Development', icon: 'code', desc: 'Landings pages e sites de alta performance conversiva.' }
+                    ].map((s, i) => (
+                      <div key={i} className="glass-panel p-10 rounded-[48px] border border-white/5 hover:border-primary/40 transition-all flex flex-col gap-6">
+                        <div className="w-14 h-14 bg-primary/10 rounded-2xl flex items-center justify-center text-primary">
+                          <span className="material-symbols-outlined text-3xl">{s.icon}</span>
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-black text-white mb-2">{s.title}</h3>
+                          <p className="text-zinc-500 text-sm leading-relaxed">{s.desc}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {currentPage === Page.PROJECTS && (
                 <div className="space-y-10 animate-fadeIn">
                   <div className="flex justify-between items-center">
@@ -436,7 +493,14 @@ const App: React.FC = () => {
                     <div><h1 className="text-4xl font-black text-white tracking-tighter">Finance Hub</h1><p className="text-zinc-500 mt-1 font-medium text-sm">Entradas automáticas de projetos e recorrentes.</p></div>
                     <div className="flex items-center gap-4">
                       <input type="month" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} className="bg-white/5 border border-white/10 px-6 py-3 rounded-2xl text-xs font-black text-white outline-none" />
-                      <button onClick={() => setIsFinanceModalOpen(true)} className="px-8 py-4 bg-primary text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-2xl flex items-center gap-3"><span className="material-symbols-outlined text-lg">add_card</span> Novo Lançamento</button>
+                      <button 
+                        type="button"
+                        onClick={() => setIsFinanceModalOpen(true)} 
+                        className="px-8 py-4 bg-primary text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-2xl flex items-center gap-3 transition-transform active:scale-95"
+                      >
+                        <span className="material-symbols-outlined text-lg">add_card</span> 
+                        Novo Lançamento
+                      </button>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -463,7 +527,7 @@ const App: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/5">
-                        {transactions.filter(t => t.date.startsWith(filterMonth)).map(t => (
+                        {transactions.filter(t => t.date && t.date.startsWith(filterMonth)).map(t => (
                           <tr key={t.id} className="hover:bg-white/[0.01] transition-colors">
                             <td className="px-8 py-6"><p className="text-sm font-bold text-white">{t.description}</p><p className="text-[10px] text-zinc-600">{t.date}</p></td>
                             <td className="px-8 py-6"><span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase ${t.type === 'income' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>{t.type === 'income' ? 'Entrada' : 'Saída'}</span></td>
@@ -491,251 +555,253 @@ const App: React.FC = () => {
           )}
         </div>
 
-        {/* MODAIS */}
-        {isFinanceModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md p-6 overflow-y-auto">
-            <div className="glass-panel p-10 rounded-[48px] w-full max-w-xl border border-white/10 shadow-2xl my-auto">
-              <h2 className="text-3xl font-black text-white uppercase tracking-tighter mb-8 text-center">Lançamento Financeiro</h2>
-              <form onSubmit={handleCreateFinance} className="space-y-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Descrição do Lançamento</label>
-                  <input required name="description" placeholder="Ex: Pagamento Mensalidade SEO" className="w-full bg-white/[0.03] border border-white/10 p-5 rounded-2xl text-white outline-none focus:border-primary" />
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* MODAIS - Renderizados no final do main para garantir prioridade de empilhamento */}
+        <div id="modal-container" className="relative z-[9999]">
+          {isFinanceModalOpen && (
+            <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 backdrop-blur-xl p-6 overflow-y-auto">
+              <div className="glass-panel p-10 rounded-[48px] w-full max-w-xl border border-white/10 shadow-2xl my-auto animate-float">
+                <h2 className="text-3xl font-black text-white uppercase tracking-tighter mb-8 text-center">Lançamento Financeiro</h2>
+                <form onSubmit={handleCreateFinance} className="space-y-6">
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Valor (R$)</label>
-                    <input required name="amount" type="number" step="0.01" placeholder="0,00" className="w-full bg-white/[0.03] border border-white/10 p-5 rounded-2xl text-white font-bold outline-none" />
+                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Descrição do Lançamento</label>
+                    <input required name="description" placeholder="Ex: Pagamento Mensalidade SEO" className="w-full bg-white/[0.03] border border-white/10 p-5 rounded-2xl text-white outline-none focus:border-primary" />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Data</label>
-                    <input required name="date" type="date" defaultValue={new Date().toISOString().split('T')[0]} className="w-full bg-white/[0.03] border border-white/10 p-5 rounded-2xl text-white outline-none" />
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Valor (R$)</label>
+                      <input required name="amount" type="number" step="0.01" placeholder="0,00" className="w-full bg-white/[0.03] border border-white/10 p-5 rounded-2xl text-white font-bold outline-none" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Data</label>
+                      <input required name="date" type="date" defaultValue={new Date().toISOString().split('T')[0]} className="w-full bg-white/[0.03] border border-white/10 p-5 rounded-2xl text-white outline-none" />
+                    </div>
                   </div>
-                </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Tipo de Fluxo</label>
-                    <select name="type" className="w-full bg-white/10 border border-white/10 p-5 rounded-2xl text-white font-bold cursor-pointer">
-                      <option value="income">Entrada (+)</option>
-                      <option value="expense">Saída (-)</option>
-                    </select>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Tipo de Fluxo</label>
+                      <select name="type" className="w-full bg-white/10 border border-white/10 p-5 rounded-2xl text-white font-bold cursor-pointer">
+                        <option value="income">Entrada (+)</option>
+                        <option value="expense">Saída (-)</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Vincular Cliente (Opcional)</label>
+                      <select name="clientId" className="w-full bg-white/10 border border-white/10 p-5 rounded-2xl text-white font-bold cursor-pointer">
+                        <option value="">Nenhum</option>
+                        {clients.map(c => <option key={c.id} value={c.id}>{c.company}</option>)}
+                      </select>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Vincular Cliente (Opcional)</label>
-                    <select name="clientId" className="w-full bg-white/10 border border-white/10 p-5 rounded-2xl text-white font-bold cursor-pointer">
-                      <option value="">Nenhum</option>
-                      {clients.map(c => <option key={c.id} value={c.id}>{c.company}</option>)}
-                    </select>
+
+                  <div className="flex gap-4 pt-4">
+                    <button type="button" onClick={() => setIsFinanceModalOpen(false)} className="flex-1 py-5 rounded-2xl text-[10px] font-black uppercase text-zinc-500 bg-white/5 hover:bg-white/10 transition-all">Cancelar</button>
+                    <button type="submit" className="flex-[2] bg-primary py-5 rounded-2xl font-black uppercase text-xs tracking-widest text-white hover:bg-primary-light transition-all shadow-xl shadow-primary/20">Registrar no Hub</button>
                   </div>
-                </div>
-
-                <div className="flex gap-4 pt-4">
-                  <button type="button" onClick={() => setIsFinanceModalOpen(false)} className="flex-1 py-5 rounded-2xl text-[10px] font-black uppercase text-zinc-500 bg-white/5 hover:bg-white/10 transition-all">Cancelar</button>
-                  <button type="submit" className="flex-[2] bg-primary py-5 rounded-2xl font-black uppercase text-xs tracking-widest text-white hover:bg-primary-light transition-all shadow-xl shadow-primary/20">Registrar no Hub</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {isLeadModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md p-6 overflow-y-auto">
-            <div className="glass-panel p-10 rounded-[48px] w-full max-w-2xl border border-white/10 shadow-2xl my-auto">
-              <h2 className="text-3xl font-black text-white uppercase tracking-tighter mb-8">Nova Oportunidade</h2>
-              <form onSubmit={handleCreateLead} className="space-y-6">
-                <div className="grid grid-cols-2 gap-4">
-                  <input required name="company" placeholder="Empresa / Lead" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-rose-500" />
-                  <input required name="name" placeholder="Responsável" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-rose-500" />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <input required name="email" type="email" placeholder="E-mail" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none" />
-                  <input required name="phone" placeholder="WhatsApp" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none" />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <input required name="service" placeholder="Serviço de Interesse" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none" />
-                  <input required name="value" type="number" placeholder="Valor Estimado R$" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-emerald-400 font-bold" />
-                </div>
-                <select name="source" className="w-full bg-white/10 border border-white/10 p-4 rounded-2xl text-white font-bold">
-                  <option value="ads">Tráfego Pago (Ads)</option>
-                  <option value="organic">Orgânico / Google</option>
-                  <option value="referral">Indicação</option>
-                  <option value="outbound">Prospecção Ativa</option>
-                </select>
-                <textarea name="notes" placeholder="Observações e contexto..." className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white h-32 outline-none"></textarea>
-                <div className="flex gap-4">
-                  <button type="button" onClick={() => setIsLeadModalOpen(false)} className="flex-1 py-5 rounded-2xl text-[10px] font-black uppercase text-zinc-500 bg-white/5">Cancelar</button>
-                  <button type="submit" className="flex-[2] bg-rose-500 py-5 rounded-2xl font-black uppercase text-xs tracking-widest text-white shadow-xl shadow-rose-500/20">Registrar no Pipeline</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {isClientModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md p-6 overflow-y-auto">
-            <div className="glass-panel p-10 rounded-[48px] w-full max-w-4xl border border-white/10 shadow-2xl my-auto">
-              <div className="flex justify-between items-center mb-10">
-                <h2 className="text-3xl font-black text-white uppercase tracking-tighter">Onboarding de Parceiro</h2>
-                <button onClick={() => setIsClientModalOpen(false)} className="text-zinc-500 hover:text-white"><span className="material-symbols-outlined text-3xl">close</span></button>
+                </form>
               </div>
-              
-              <form onSubmit={handleCreateClient} className="space-y-8">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Razão Social / Empresa</label>
-                    <input required name="company" placeholder="Luminus Marketing LTDA" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Nome do Responsável (Key Account)</label>
-                    <input required name="name" placeholder="Ex: João Silva" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
-                  </div>
-                </div>
+            </div>
+          )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">CNPJ</label>
-                    <input name="cnpj" placeholder="00.000.000/0000-00" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">CPF (Se Pessoa Física)</label>
-                    <input name="cpf" placeholder="000.000.000-00" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Email Principal</label>
-                    <input required name="email" type="email" placeholder="contato@empresa.com" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">WhatsApp (Fale Conosco)</label>
-                    <input required name="phone" placeholder="(00) 00000-0000" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Telefone Secundário</label>
-                    <input name="phone2" placeholder="(00) 0000-0000" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Endereço Comercial</label>
-                    <input name="address" placeholder="Rua, Número, Bairro" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
+          {isLeadModalOpen && (
+            <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 backdrop-blur-xl p-6 overflow-y-auto">
+              <div className="glass-panel p-10 rounded-[48px] w-full max-w-2xl border border-white/10 shadow-2xl my-auto">
+                <h2 className="text-3xl font-black text-white uppercase tracking-tighter mb-8">Nova Oportunidade</h2>
+                <form onSubmit={handleCreateLead} className="space-y-6">
+                  <div className="grid grid-cols-2 gap-4">
+                    <input required name="company" placeholder="Empresa / Lead" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-rose-500" />
+                    <input required name="name" placeholder="Responsável" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-rose-500" />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Cidade</label>
-                      <input name="city" placeholder="Ex: São Paulo" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Estado</label>
-                      <input name="state" placeholder="Ex: SP" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
-                    </div>
+                    <input required name="email" type="email" placeholder="E-mail" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none" />
+                    <input required name="phone" placeholder="WhatsApp" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none" />
                   </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Website</label>
-                    <input name="website" placeholder="www.empresa.com.br" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
+                  <div className="grid grid-cols-2 gap-4">
+                    <input required name="service" placeholder="Serviço de Interesse" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none" />
+                    <input required name="value" type="number" placeholder="Valor Estimado R$" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-emerald-400 font-bold" />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Instagram (@)</label>
-                    <input name="instagram" placeholder="@seucliente" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
+                  <select name="source" className="w-full bg-white/10 border border-white/10 p-4 rounded-2xl text-white font-bold">
+                    <option value="ads">Tráfego Pago (Ads)</option>
+                    <option value="organic">Orgânico / Google</option>
+                    <option value="referral">Indicação</option>
+                    <option value="outbound">Prospecção Ativa</option>
+                  </select>
+                  <textarea name="notes" placeholder="Observações e contexto..." className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white h-32 outline-none"></textarea>
+                  <div className="flex gap-4">
+                    <button type="button" onClick={() => setIsLeadModalOpen(false)} className="flex-1 py-5 rounded-2xl text-[10px] font-black uppercase text-zinc-500 bg-white/5">Cancelar</button>
+                    <button type="submit" className="flex-[2] bg-rose-500 py-5 rounded-2xl font-black uppercase text-xs tracking-widest text-white shadow-xl shadow-rose-500/20">Registrar no Pipeline</button>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Modelo de Billing</label>
-                    <select name="billingType" className="w-full bg-white/10 border border-white/10 p-4 rounded-2xl text-white font-bold cursor-pointer">
-                      <option value="monthly">Fee Mensal (Recorrente)</option>
-                      <option value="one_time">Job Único / Avulso</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="flex gap-4 pt-4">
-                  <button type="button" onClick={() => setIsClientModalOpen(false)} className="flex-1 py-5 rounded-2xl text-[10px] font-black uppercase text-zinc-500 bg-white/5 hover:bg-white/10 transition-all">Cancelar</button>
-                  <button type="submit" className="flex-[2] bg-primary py-5 rounded-2xl font-black uppercase text-xs tracking-widest text-white hover:bg-primary-light transition-all shadow-xl shadow-primary/20">Registrar Parceiro</button>
-                </div>
-              </form>
+                </form>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {isProjectModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md p-6">
-            <div className="glass-panel p-12 rounded-[56px] w-full max-w-2xl border border-white/10 shadow-2xl">
-              <h2 className="text-2xl font-black text-white uppercase tracking-tighter mb-8">Novo Workflow</h2>
-              <form onSubmit={handleCreateProject} className="space-y-6">
-                <input required name="name" placeholder="Nome do Projeto" className="w-full bg-white/[0.03] border border-white/10 p-5 rounded-2xl text-white outline-none focus:border-primary" />
+          {isClientModalOpen && (
+            <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 backdrop-blur-xl p-6 overflow-y-auto">
+              <div className="glass-panel p-10 rounded-[48px] w-full max-w-4xl border border-white/10 shadow-2xl my-auto">
+                <div className="flex justify-between items-center mb-10">
+                  <h2 className="text-3xl font-black text-white uppercase tracking-tighter">Onboarding de Parceiro</h2>
+                  <button onClick={() => setIsClientModalOpen(false)} className="text-zinc-500 hover:text-white"><span className="material-symbols-outlined text-3xl">close</span></button>
+                </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest ml-1">Selecione Cliente Existente</label>
-                    <select name="clientId" className="w-full bg-white/10 border border-white/10 p-5 rounded-2xl text-white font-bold">
-                      <option value="">-- Vincular Cliente --</option>
-                      {clients.map(c => <option key={c.id} value={c.id}>{c.company}</option>)}
-                    </select>
+                <form onSubmit={handleCreateClient} className="space-y-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Razão Social / Empresa</label>
+                      <input required name="company" placeholder="Luminus Marketing LTDA" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Nome do Responsável (Key Account)</label>
+                      <input required name="name" placeholder="Ex: João Silva" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest ml-1">Ou Nome do Novo Cliente</label>
-                    <input name="newClientName" placeholder="Caso não seja cliente..." className="w-full bg-white/[0.03] border border-white/10 p-5 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
-                  </div>
-                </div>
 
-                <div className="grid grid-cols-2 gap-6">
-                  <input required name="budget" type="number" placeholder="Budget R$" className="w-full bg-white/[0.03] border border-white/10 p-5 rounded-2xl text-emerald-400 font-bold" />
-                  <input required name="dueDate" type="date" className="w-full bg-white/[0.03] border border-white/10 p-5 rounded-2xl text-white outline-none" />
-                </div>
-                <input required name="serviceType" placeholder="Tipo de Serviço (Ex: Google Ads)" className="w-full bg-white/[0.03] border border-white/10 p-5 rounded-2xl text-white outline-none" />
-                <div className="flex gap-4">
-                  <button type="button" onClick={() => setIsProjectModalOpen(false)} className="flex-1 py-6 rounded-2xl text-[10px] font-black uppercase text-zinc-500 bg-white/5">Cancelar</button>
-                  <button type="submit" className="flex-[2] bg-primary py-6 rounded-2xl font-black uppercase text-xs tracking-widest text-white">Sincronizar Workflow & Financeiro</button>
-                </div>
-              </form>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">CNPJ</label>
+                      <input name="cnpj" placeholder="00.000.000/0000-00" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">CPF (Se Pessoa Física)</label>
+                      <input name="cpf" placeholder="000.000.000-00" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Email Principal</label>
+                      <input required name="email" type="email" placeholder="contato@empresa.com" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">WhatsApp (Fale Conosco)</label>
+                      <input required name="phone" placeholder="(00) 00000-0000" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Telefone Secundário</label>
+                      <input name="phone2" placeholder="(00) 0000-0000" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Endereço Comercial</label>
+                      <input name="address" placeholder="Rua, Número, Bairro" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Cidade</label>
+                        <input name="city" placeholder="Ex: São Paulo" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Estado</label>
+                        <input name="state" placeholder="Ex: SP" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Website</label>
+                      <input name="website" placeholder="www.empresa.com.br" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Instagram (@)</label>
+                      <input name="instagram" placeholder="@seucliente" className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Modelo de Billing</label>
+                      <select name="billingType" className="w-full bg-white/10 border border-white/10 p-4 rounded-2xl text-white font-bold cursor-pointer">
+                        <option value="monthly">Fee Mensal (Recorrente)</option>
+                        <option value="one_time">Job Único / Avulso</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-4 pt-4">
+                    <button type="button" onClick={() => setIsClientModalOpen(false)} className="flex-1 py-5 rounded-2xl text-[10px] font-black uppercase text-zinc-500 bg-white/5 hover:bg-white/10 transition-all">Cancelar</button>
+                    <button type="submit" className="flex-[2] bg-primary py-5 rounded-2xl font-black uppercase text-xs tracking-widest text-white hover:bg-primary-light transition-all shadow-xl shadow-primary/20">Registrar Parceiro</button>
+                  </div>
+                </form>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {viewingClient && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md p-6 overflow-y-auto">
-             <div className="glass-panel p-12 rounded-[56px] w-full max-w-3xl border border-white/10 shadow-2xl relative">
-                <button onClick={() => setViewingClient(null)} className="absolute top-10 right-10 text-zinc-500 hover:text-white"><span className="material-symbols-outlined text-3xl">close</span></button>
-                <div className="flex items-center gap-6 mb-12">
-                   <div className="w-20 h-20 rounded-[32px] bg-primary/20 flex items-center justify-center text-primary text-4xl font-black border border-primary/20">{viewingClient.company.charAt(0)}</div>
-                   <div>
-                      <h2 className="text-3xl font-black text-white leading-none mb-2">{viewingClient.company}</h2>
-                      <p className="text-zinc-500 font-bold uppercase text-[10px] tracking-[2px]">{viewingClient.name} • {viewingClient.billingType === 'monthly' ? 'Recorrente' : 'Job Único'}</p>
-                   </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                   <div className="space-y-6">
-                      <p className="text-[10px] font-black text-zinc-600 uppercase tracking-widest border-b border-white/5 pb-2">Contatos e Fiscal</p>
-                      <div className="space-y-4 text-sm">
-                        <div className="flex items-center gap-3 text-zinc-400"><span className="material-symbols-outlined text-zinc-600 text-base">mail</span> {viewingClient.email}</div>
-                        <div className="flex items-center gap-3 text-zinc-400"><span className="material-symbols-outlined text-zinc-600 text-base">call</span> {viewingClient.phone}</div>
-                        {viewingClient.cnpj && <div className="flex items-center gap-3 text-zinc-400"><span className="material-symbols-outlined text-zinc-600 text-base">domain</span> CNPJ: {viewingClient.cnpj}</div>}
-                        {viewingClient.address && <div className="flex items-start gap-3 text-zinc-400"><span className="material-symbols-outlined text-zinc-600 text-base">location_on</span> <div>{viewingClient.address}<br/>{viewingClient.city} - {viewingClient.state}</div></div>}
-                      </div>
-                   </div>
-                   <div className="space-y-6">
-                      <p className="text-[10px] font-black text-zinc-600 uppercase tracking-widest border-b border-white/5 pb-2">Performance & Digital</p>
-                      <div className="space-y-4 text-sm">
-                        <div className="flex justify-between items-center"><span className="text-zinc-500">LTV Total:</span> <span className="text-white font-black">R$ {viewingClient.totalInvested.toLocaleString('pt-BR')}</span></div>
-                        <div className="flex justify-between items-center"><span className="text-zinc-500">Projetos:</span> <span className="text-white font-black">{viewingClient.activeProjects} Ativos</span></div>
-                        {viewingClient.instagram && <div className="flex items-center gap-3 text-zinc-400"><span className="material-symbols-outlined text-zinc-600 text-base">camera</span> @{viewingClient.instagram}</div>}
-                        {viewingClient.website && <div className="flex items-center gap-3 text-zinc-400"><span className="material-symbols-outlined text-zinc-600 text-base">language</span> {viewingClient.website}</div>}
-                      </div>
-                   </div>
-                </div>
-             </div>
-          </div>
-        )}
+          {isProjectModalOpen && (
+            <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 backdrop-blur-xl p-6">
+              <div className="glass-panel p-12 rounded-[56px] w-full max-w-2xl border border-white/10 shadow-2xl">
+                <h2 className="text-2xl font-black text-white uppercase tracking-tighter mb-8">Novo Workflow</h2>
+                <form onSubmit={handleCreateProject} className="space-y-6">
+                  <input required name="name" placeholder="Nome do Projeto" className="w-full bg-white/[0.03] border border-white/10 p-5 rounded-2xl text-white outline-none focus:border-primary" />
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest ml-1">Selecione Cliente Existente</label>
+                      <select name="clientId" className="w-full bg-white/10 border border-white/10 p-5 rounded-2xl text-white font-bold">
+                        <option value="">-- Vincular Cliente --</option>
+                        {clients.map(c => <option key={c.id} value={c.id}>{c.company}</option>)}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest ml-1">Ou Nome do Novo Cliente</label>
+                      <input name="newClientName" placeholder="Caso não seja cliente..." className="w-full bg-white/[0.03] border border-white/10 p-5 rounded-2xl text-white outline-none focus:border-primary placeholder:text-zinc-700" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-6">
+                    <input required name="budget" type="number" placeholder="Budget R$" className="w-full bg-white/[0.03] border border-white/10 p-5 rounded-2xl text-emerald-400 font-bold" />
+                    <input required name="dueDate" type="date" className="w-full bg-white/[0.03] border border-white/10 p-5 rounded-2xl text-white outline-none" />
+                  </div>
+                  <input required name="serviceType" placeholder="Tipo de Serviço (Ex: Google Ads)" className="w-full bg-white/[0.03] border border-white/10 p-5 rounded-2xl text-white outline-none" />
+                  <div className="flex gap-4">
+                    <button type="button" onClick={() => setIsProjectModalOpen(false)} className="flex-1 py-6 rounded-2xl text-[10px] font-black uppercase text-zinc-500 bg-white/5">Cancelar</button>
+                    <button type="submit" className="flex-[2] bg-primary py-6 rounded-2xl font-black uppercase text-xs tracking-widest text-white">Sincronizar Workflow & Financeiro</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {viewingClient && (
+            <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 backdrop-blur-xl p-6 overflow-y-auto">
+               <div className="glass-panel p-12 rounded-[56px] w-full max-w-3xl border border-white/10 shadow-2xl relative">
+                  <button onClick={() => setViewingClient(null)} className="absolute top-10 right-10 text-zinc-500 hover:text-white"><span className="material-symbols-outlined text-3xl">close</span></button>
+                  <div className="flex items-center gap-6 mb-12">
+                     <div className="w-20 h-20 rounded-[32px] bg-primary/20 flex items-center justify-center text-primary text-4xl font-black border border-primary/20">{viewingClient.company.charAt(0)}</div>
+                     <div>
+                        <h2 className="text-3xl font-black text-white leading-none mb-2">{viewingClient.company}</h2>
+                        <p className="text-zinc-500 font-bold uppercase text-[10px] tracking-[2px]">{viewingClient.name} • {viewingClient.billingType === 'monthly' ? 'Recorrente' : 'Job Único'}</p>
+                     </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                     <div className="space-y-6">
+                        <p className="text-[10px] font-black text-zinc-600 uppercase tracking-widest border-b border-white/5 pb-2">Contatos e Fiscal</p>
+                        <div className="space-y-4 text-sm">
+                          <div className="flex items-center gap-3 text-zinc-400"><span className="material-symbols-outlined text-zinc-600 text-base">mail</span> {viewingClient.email}</div>
+                          <div className="flex items-center gap-3 text-zinc-400"><span className="material-symbols-outlined text-zinc-600 text-base">call</span> {viewingClient.phone}</div>
+                          {viewingClient.cnpj && <div className="flex items-center gap-3 text-zinc-400"><span className="material-symbols-outlined text-zinc-600 text-base">domain</span> CNPJ: {viewingClient.cnpj}</div>}
+                          {viewingClient.address && <div className="flex items-start gap-3 text-zinc-400"><span className="material-symbols-outlined text-zinc-600 text-base">location_on</span> <div>{viewingClient.address}<br/>{viewingClient.city} - {viewingClient.state}</div></div>}
+                        </div>
+                     </div>
+                     <div className="space-y-6">
+                        <p className="text-[10px] font-black text-zinc-600 uppercase tracking-widest border-b border-white/5 pb-2">Performance & Digital</p>
+                        <div className="space-y-4 text-sm">
+                          <div className="flex justify-between items-center"><span className="text-zinc-500">LTV Total:</span> <span className="text-white font-black">R$ {viewingClient.totalInvested.toLocaleString('pt-BR')}</span></div>
+                          <div className="flex justify-between items-center"><span className="text-zinc-500">Projetos:</span> <span className="text-white font-black">{viewingClient.activeProjects} Ativos</span></div>
+                          {viewingClient.instagram && <div className="flex items-center gap-3 text-zinc-400"><span className="material-symbols-outlined text-zinc-600 text-base">camera</span> @{viewingClient.instagram}</div>}
+                          {viewingClient.website && <div className="flex items-center gap-3 text-zinc-400"><span className="material-symbols-outlined text-zinc-600 text-base">language</span> {viewingClient.website}</div>}
+                        </div>
+                     </div>
+                  </div>
+               </div>
+            </div>
+          )}
+        </div>
       </main>
 
       {/* LOGIN OVERLAY */}
       {!session && (
-         <div className="fixed inset-0 z-[1000] flex bg-dark-bg animate-fadeIn">
+         <div className="fixed inset-0 z-[99999] flex bg-dark-bg animate-fadeIn">
             <div className="hidden lg:flex lg:w-3/5 relative overflow-hidden bg-sidebar-dark border-r border-white/5">
               <img 
                 src="https://images.unsplash.com/photo-1557426272-fc759fdf7a8d?auto=format&fit=crop&q=80&w=1600" 
@@ -771,7 +837,7 @@ const App: React.FC = () => {
                  <h1 className="text-2xl font-black text-white tracking-tighter uppercase">Luminus Marketing</h1>
               </div>
 
-              <div className="w-full max-w-md space-y-12">
+              <div className="w-full max-md space-y-12">
                 <div className="space-y-4 text-center lg:text-left">
                   <h1 className="text-4xl font-black text-white tracking-tight">Login Corporativo</h1>
                   <p className="text-zinc-500 text-sm font-medium">Insira suas credenciais para acessar o Hub de Gestão.</p>
